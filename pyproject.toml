@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "mystery-gang-orchestrator"
+version = "0.1.0"
+description = "Agent orchestration as Saturday morning cartoons"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+web = ["streamlit>=1.32", "anthropic>=0.20"]
+
+[project.scripts]
+mystery-gang = "demo.group_chat_demo:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "demo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.setuptools.package-dir]
+"" = "."

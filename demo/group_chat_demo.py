@@ -8,12 +8,13 @@ import sys
 import time
 import random
 from pathlib import Path
+from typing import List
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from character import CharacterEngine
-from assembly import TaskAnalyzer, TeamSelector, AssemblySceneGenerator
+from assembly import TaskAnalyzer, TeamSelector, AssemblySceneGenerator, TaskType, TaskAnalysis
 from technobabble import TechnobabbleTranslator, Theme
 
 
@@ -32,6 +33,28 @@ class GroupChatDemo:
         self.chat_history = []
         self.reactions = []
     
+    def _generate_deliverables(self, task: str, analysis: TaskAnalysis) -> List[str]:
+        """Build deliverable list dynamically from task type and detected keywords."""
+        keywords = analysis.keywords
+
+        primary_map = {
+            TaskType.BACKEND: f"REST API implemented ({', '.join(keywords[:2]) or 'endpoints'} covered)",
+            TaskType.FRONTEND: f"UI component built ({', '.join(keywords[:2]) or 'interface'} complete)",
+            TaskType.DEBUGGING: f"Bug resolved ({keywords[0] if keywords else 'issue'} fixed)",
+            TaskType.DOCS: f"Documentation written ({', '.join(keywords[:2]) or 'guide'} complete)",
+            TaskType.TESTING: f"Test suite passing ({', '.join(keywords[:2]) or 'coverage'} verified)",
+            TaskType.DEVOPS: f"Pipeline configured ({', '.join(keywords[:2]) or 'infra'} deployed)",
+            TaskType.GENERAL: "Mission objective completed",
+        }
+
+        return [
+            primary_map.get(analysis.task_type, "Primary objective complete"),
+            "Error handling added",
+            "Documentation updated",
+            "All tests passing",
+            "Bug fixed",
+        ]
+
     def print_header(self):
         """Print chat header"""
         theme_info = self.translator.get_theme_info()
@@ -207,16 +230,8 @@ class GroupChatDemo:
         
         # Summary
         print("📦 DELIVERABLES:")
-        deliverables = [
-            ("API endpoints created", "resonance chamber calibrated"),
-            ("Authentication implemented", "security protocols engaged"),
-            ("Error handling added", "safety nets deployed"),
-            ("Documentation written", "logs recorded"),
-            ("15 tests passing", "all traps sprung successfully"),
-            ("Bug fixed", "spectral anomaly neutralized")
-        ]
-        
-        for technical, translated in deliverables:
+        for technical in self._generate_deliverables(task, analysis):
+            translated = self.translator.translate(technical)
             if show_raw:
                 print(f"   ✓ {technical}")
             elif show_both:

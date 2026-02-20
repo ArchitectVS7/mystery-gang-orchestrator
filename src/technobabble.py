@@ -4,10 +4,11 @@ Technobabble Translator for Mystery Gang Orchestrator
 Translates technical output into cartoon/game lingo with theme support
 """
 
+import os
 import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -353,14 +354,78 @@ class TechnobabbleDictionary:
         return list(set(entry.category for entry in self.entries))
 
 
+class LLMTranslationFallback:
+    """Optional LLM-powered translation using the Anthropic API.
+
+    Activated automatically when the ``anthropic`` package is installed and
+    ``ANTHROPIC_API_KEY`` is present in the environment.  All results are
+    cached in-process so repeated translations don't burn extra tokens.
+    """
+
+    def __init__(self):
+        self._client = None
+        self._cache: Dict[str, str] = {}
+        self._available = self._check_availability()
+
+    def _check_availability(self) -> bool:
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            return False
+        try:
+            import anthropic  # noqa: PLC0415
+            self._client = anthropic.Anthropic()
+            return True
+        except ImportError:
+            return False
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def translate(self, text: str, theme: Theme, theme_config: "ThemeConfig") -> Optional[str]:
+        """Return a single-sentence themed translation, or *None* on failure."""
+        if not self._available:
+            return None
+
+        cache_key = f"{text}:{theme.value}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        try:
+            import anthropic  # noqa: PLC0415
+
+            prompt = (
+                f"You are translating technical software output into "
+                f"{theme_config.name} ({theme_config.description}) style for "
+                f"a fun cartoon interface. The team is called "
+                f"'{theme_config.team_name}' and they travel in "
+                f"'{theme_config.vehicle_name}'.\n\n"
+                f"Translate the following technical message into one short, "
+                f"in-character sentence. Reply with only the translated "
+                f"sentence and nothing else.\n\n"
+                f"Technical message: {text}"
+            )
+
+            message = self._client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=100,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            result = message.content[0].text.strip()
+            self._cache[cache_key] = result
+            return result
+        except Exception:
+            return None
+
+
 class TechnobabbleTranslator:
     """Main translator engine with theme support"""
-    
-    def __init__(self):
+
+    def __init__(self, use_llm: bool = True):
         self.dictionary = TechnobabbleDictionary()
         self.current_theme = Theme.SCOOBY
         self.show_raw = False
         self.show_both = False
+        self._llm_fallback = LLMTranslationFallback() if use_llm else None
     
     def set_theme(self, theme: Theme):
         """Set the current translation theme"""
@@ -371,19 +436,44 @@ class TechnobabbleTranslator:
         self.show_raw = show_raw
         self.show_both = show_both
     
+    def _dictionary_has_exact_match(self, text: str) -> bool:
+        """Return True when at least one dictionary entry key appears in *text*."""
+        text_lower = text.lower()
+        return any(
+            entry.technical.lower() in text_lower
+            for entry in self.dictionary.entries
+        )
+
     def translate(self, technical_text: str, original_text: str = None) -> str:
         """
-        Translate technical output based on current mode
-        
+        Translate technical output based on current mode.
+
+        Resolution order:
+        1. Dictionary exact/substring match
+        2. LLM-assisted translation (when available)
+        3. Keyword-template fallback
+
         Args:
             technical_text: The technical output to translate
             original_text: Optional original text for context
-        
+
         Returns:
             Formatted output based on mode settings
         """
-        translated = self.dictionary.translate(technical_text, self.current_theme)
-        
+        if self._dictionary_has_exact_match(technical_text):
+            translated = self.dictionary.translate(technical_text, self.current_theme)
+        elif self._llm_fallback and self._llm_fallback.available:
+            theme_configs = self._get_theme_configs()
+            theme_config = theme_configs.get(self.current_theme)
+            llm_result = self._llm_fallback.translate(
+                technical_text, self.current_theme, theme_config
+            )
+            translated = llm_result if llm_result else self.dictionary.translate(
+                technical_text, self.current_theme
+            )
+        else:
+            translated = self.dictionary.translate(technical_text, self.current_theme)
+
         if self.show_raw:
             # Show only original
             return technical_text
